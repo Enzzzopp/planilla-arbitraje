@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>Editar valores</title>
+<style>
+:root{--g:#1f7a4d;--bg:#fff;--f:#f3f5f4;--t:#1b1f1d;--m:#6a736e;--b:#dfe5e1;--r:#b03030}
+*{box-sizing:border-box}body{margin:0;font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--t);background:var(--bg);padding:16px 16px 120px;max-width:640px;margin:auto}
+h1{font-size:22px;margin:8px 0 4px}h2{font-size:17px;margin:0 0 10px}p{color:var(--m);margin:4px 0 12px}
+.card{border:1px solid var(--b);border-radius:16px;padding:16px;margin:14px 0}
+input,select{font:inherit;width:100%;padding:12px;border:0;border-radius:12px;background:var(--f);color:var(--t)}
+input:focus,select:focus{outline:2px solid var(--g)}
+.row{display:flex;gap:8px;margin:6px 0;align-items:center}.row>*:first-child{flex:1.5}.row>*:nth-child(2){flex:1}
+.x{flex:0 0 44px!important;border:0;background:#fbeaea;color:var(--r);border-radius:12px;height:44px;font-size:20px}
+button{font:inherit;cursor:pointer}.sec{border:0;background:#e8f4ec;color:var(--g);font-weight:600;padding:12px 16px;border-radius:12px;margin-top:6px}
+.big{position:fixed;left:16px;right:16px;bottom:16px;max-width:608px;margin:auto;border:0;background:var(--g);color:#fff;font-weight:700;font-size:18px;padding:16px;border-radius:16px;box-shadow:0 6px 20px #0003}
+label{display:block;font-size:13px;color:var(--m);margin:10px 0 2px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#msg{position:fixed;top:10px;left:16px;right:16px;max-width:608px;margin:auto;padding:12px 16px;border-radius:12px;display:none;font-weight:600;z-index:9}
+.ok{background:#e8f4ec;color:var(--g)}.err{background:#fbeaea;color:var(--r)}
+details summary{cursor:pointer;font-weight:600}ol{padding-left:20px;color:var(--m)}
+</style></head><body>
+<div id="msg"></div>
+<h1>Editar valores</h1><p>Solo para administradores. Los cambios llegan a la app de todos los árbitros en 1 o 2 minutos.</p>
+
+<div class="card" id="cTok">
+ <h2>Clave de administrador</h2>
+ <div id="tokOk" style="display:none"><p>✔ Clave guardada en este celular.</p><button class="sec" id="tokDel">Quitar clave</button></div>
+ <div id="tokForm">
+  <p>Se pide una sola vez por celular. Pegá acá la clave que te dio quien administra la app.</p>
+  <input id="tok" type="password" placeholder="Pegar clave" autocomplete="off">
+  <button class="sec" id="tokSave">Guardar clave</button>
+ </div>
+</div>
+
+<div class="card"><h2>Traslados</h2><p>Valor del pasaje ida y vuelta de cada ciudad.</p>
+ <div id="tras"></div><button class="sec" id="trasAdd">+ Agregar ciudad</button></div>
+
+<div class="card"><h2>Aranceles y dietas</h2>
+ <p>Elegí el período. Cuando suben los valores, tocá "Nuevo período": se copia el actual y cambiás lo que haga falta. Los períodos viejos se dejan para planillas de fechas anteriores.</p>
+ <select id="per"></select><button class="sec" id="perNew">+ Nuevo período</button>
+ <div id="perF"></div></div>
+
+<details class="card"><summary>¿Cómo funciona?</summary><ol>
+ <li>Cambiá los números (sin $ ni puntos).</li><li>Tocá "Guardar cambios" abajo.</li>
+ <li>Esperá 1 o 2 minutos y listo: la app de los árbitros muestra los valores nuevos.</li>
+ <li>Si te equivocás, volvé a entrar, corregí y guardá de nuevo.</li></ol></details>
+
+<button class="big" id="save">Guardar cambios</button>
+<script>
+const OWNER='Enzzzopp',REPO='planilla-arbitraje',FILE='valores.json';
+const $=s=>document.querySelector(s);let V=null,sha=null,cur=0;
+const tk=()=>{try{return localStorage.getItem('pa.tok')||''}catch(e){return ''}};
+function msg(t,ok){const m=$('#msg');m.textContent=t;m.className=ok?'ok':'err';m.style.display='block';clearTimeout(msg.t);msg.t=setTimeout(()=>m.style.display='none',ok?4000:8000)}
+function tokUI(){const h=!!tk();$('#tokOk').style.display=h?'block':'none';$('#tokForm').style.display=h?'none':'block'}
+$('#tokSave').onclick=()=>{const v=$('#tok').value.trim();if(!v)return msg('Pegá la clave primero.');try{localStorage.setItem('pa.tok',v)}catch(e){}tokUI();cargar()};
+$('#tokDel').onclick=()=>{try{localStorage.removeItem('pa.tok')}catch(e){}tokUI()};
+const u8=s=>btoa(unescape(encodeURIComponent(s)));const un8=b=>decodeURIComponent(escape(atob(b.replace(/\s/g,''))));
+async function cargar(){
+  try{
+    if(tk()){const r=await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE}?t=${Date.now()}`,{headers:{Authorization:'Bearer '+tk()},cache:'no-store'});
+      if(r.status===401||r.status===403)throw new Error('La clave no es válida o venció.');if(!r.ok)throw new Error('No se pudo leer ('+r.status+').');
+      const j=await r.json();sha=j.sha;V=JSON.parse(un8(j.content))}
+    else{const r=await fetch(FILE+'?t='+Date.now(),{cache:'no-store'});V=await r.json()}
+    V.tarifas.sort((a,b)=>a.desde.localeCompare(b.desde));cur=V.tarifas.length-1;draw()
+  }catch(e){msg(e.message||'No se pudieron cargar los valores. Revisá la conexión.')}
+}
+const num=v=>{const n=parseInt(String(v).replace(/\D/g,''),10);return isNaN(n)?0:n};
+function draw(){
+  const T=$('#tras');T.innerHTML='';
+  V.traslados.forEach((t,i)=>{const r=document.createElement('div');r.className='row';
+    r.innerHTML='<input placeholder="Ciudad"><input inputmode="numeric" placeholder="$"><button class="x" aria-label="Quitar">×</button>';
+    const [a,b,x]=r.children;a.value=t[0];b.value=t[1]||'';a.oninput=()=>t[0]=a.value;b.oninput=()=>t[1]=num(b.value);
+    x.onclick=()=>{if(confirm('¿Quitar '+(t[0]||'esta fila')+'?')){V.traslados.splice(i,1);draw()}};T.appendChild(r)});
+  const S=$('#per');S.innerHTML='';V.tarifas.forEach((p,i)=>{const o=document.createElement('option');o.value=i;o.textContent=p.nombre+' (desde '+p.desde.split('-').reverse().join('/')+')';S.appendChild(o)});S.value=cur;
+  const p=V.tarifas[cur],F=$('#perF');F.innerHTML='';
+  const f=(lbl,get,set,type)=>{const d=document.createElement('div');d.innerHTML=`<label>${lbl}</label><input ${type==='n'?'inputmode="numeric"':''}>`;const i=d.querySelector('input');i.value=get();i.oninput=()=>set(type==='n'?num(i.value):i.value);return d};
+  F.appendChild(f('Nombre del período',()=>p.nombre,v=>p.nombre=v));
+  F.appendChild(f('Rige desde (AAAA-MM-DD, ej. 2027-02-01)',()=>p.desde,v=>p.desde=v));
+  const g=document.createElement('div');g.className='grid';
+  [['U11','U11'],['U13','U13'],['U15','U15'],['U17','U17'],['U21','U21'],['MAY','Mayores'],['MAXI','Maxi']].forEach(([k,n])=>{
+    g.appendChild(f(n+' Masculino',()=>p.cat[k][0]||'',v=>p.cat[k][0]=v,'n'));g.appendChild(f(n+' Femenino',()=>p.cat[k][1]||'',v=>p.cat[k][1]=v,'n'))});
+  g.appendChild(f('Dieta',()=>p.dieta||'',v=>p.dieta=v,'n'));g.appendChild(f('Dieta Mayores',()=>p.dietaMay||'',v=>p.dietaMay=v,'n'));
+  F.appendChild(g);
+}
+$('#per').onchange=e=>{cur=+e.target.value;draw()};
+$('#trasAdd').onclick=()=>{V.traslados.push(['',0]);draw();const r=$('#tras').lastElementChild;r&&r.firstChild.focus()};
+$('#perNew').onclick=()=>{const p=JSON.parse(JSON.stringify(V.tarifas[cur]));const d=new Date();p.nombre='Nuevo período';p.desde=d.toISOString().slice(0,10);V.tarifas.push(p);cur=V.tarifas.length-1;draw();msg('Período copiado. Cambiá nombre, fecha y valores.',true)};
+$('#save').onclick=async()=>{
+  if(!tk())return msg('Primero guardá la clave de administrador (arriba).');
+  if(!V)return msg('Todavía no cargaron los valores.');
+  V.traslados=V.traslados.filter(t=>String(t[0]).trim()&&t[1]>0);
+  for(const p of V.tarifas){if(!/^\d{4}-\d{2}-\d{2}$/.test(p.desde))return msg('La fecha "Rige desde" de "'+p.nombre+'" debe ser AAAA-MM-DD, ej. 2027-02-01.')}
+  const b=$('#save');b.disabled=true;b.textContent='Guardando…';
+  try{
+    const r=await fetch(`https://api.github.com/repos/${OWNER}/${REPO}/contents/${FILE}`,{method:'PUT',headers:{Authorization:'Bearer '+tk(),'Content-Type':'application/json'},
+      body:JSON.stringify({message:'Actualizar valores',content:u8(JSON.stringify(V,null,1)),sha})});
+    if(r.status===409||r.status===422){throw new Error('Alguien más guardó antes. Recargá la página y volvé a cargar tus cambios.')}
+    if(!r.ok)throw new Error('No se pudo guardar ('+r.status+'). Revisá la clave y la conexión.');
+    const j=await r.json();sha=j.content.sha;msg('✔ Guardado. En 1 o 2 minutos lo ven todos los árbitros.',true);draw()
+  }catch(e){msg(e.message)}finally{b.disabled=false;b.textContent='Guardar cambios'}
+};
+tokUI();cargar();
+</script></body></html>
